@@ -1,4 +1,4 @@
-package poller
+package waker
 
 import (
 	"github.com/widaT/poller"
