@@ -36,55 +36,47 @@ func main() {
 	}
 
 	uniqueToken := 1
-	events := poller.MakeEvents(128)
 	connections := make(map[poller.Token]int)
-	for {
-		n, err := poll.Select(events, -1)
-		if err != nil {
-			if err == unix.EINTR {
-				continue
-			}
-			log.Fatal(err)
-		}
-		for i := 0; i < n; i++ {
-			ev := events[i]
-			switch ev.Token() {
-			case SERVER:
-				for {
-					cfd, _, err := unix.Accept(fd)
-					if err != nil {
-						//WouldBlock
-						if err == unix.EAGAIN {
-							//	fmt.Println(err)
-							break
-						}
-						log.Fatal(err)
-					}
-					if err := poller.Nonblock(cfd); err != nil {
-						log.Fatal(err)
-					}
 
-					uniqueToken++
-					err = poll.Register(cfd, poller.Token(uniqueToken), interest.READABLE.Add(interest.WRITABLE), pollopt.Edge)
-					if err != nil {
-						log.Fatal(err)
+	fn := func(ev *poller.Event) error {
+		switch ev.Token() {
+		case SERVER:
+			for {
+				cfd, _, err := unix.Accept(fd)
+				if err != nil {
+					//WouldBlock
+					if err == unix.EAGAIN {
+						//	fmt.Println(err)
+						break
 					}
-					connections[poller.Token(uniqueToken)] = cfd
+					return err
+				}
+				if err := poller.Nonblock(cfd); err != nil {
+					return err
 				}
 
-			default:
-				if fd, found := connections[ev.Token()]; found {
-					err := handleEvent(poll, fd, ev)
-					if err != nil {
-						delete(connections, poller.Token(uniqueToken))
-					}
+				uniqueToken++
+				err = poll.Register(cfd, poller.Token(uniqueToken), interest.READABLE.Add(interest.WRITABLE), pollopt.Edge)
+				if err != nil {
+					log.Fatal(err)
+				}
+				connections[poller.Token(uniqueToken)] = cfd
+			}
+
+		default:
+			if fd, found := connections[ev.Token()]; found {
+				err := handle(poll, fd, ev)
+				if err != nil {
+					delete(connections, poller.Token(uniqueToken))
 				}
 			}
 		}
+		return nil
 	}
+	poller.Polling(poll, fn)
 }
 
-func handleEvent(s *poller.Selector, fd int, event poller.Event) error {
+func handle(s *poller.Selector, fd int, event *poller.Event) error {
 	switch {
 	case event.IsReadable():
 		connectionClosed := false

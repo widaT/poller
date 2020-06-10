@@ -1,6 +1,7 @@
 package poller
 
 import (
+	"log"
 	"sync/atomic"
 	"syscall"
 	"unsafe"
@@ -60,6 +61,26 @@ func (s *Selector) Reregister(fd int, tonken Token, interests interest.Interest,
 
 func (s *Selector) Deregister(fd int) error {
 	return unix.EpollCtl(s.fd, syscall.EPOLL_CTL_DEL, fd, nil)
+}
+
+func Polling(s *Selector, f func(*Event) error) error {
+	events := MakeEvents(128)
+	for {
+		n, err := s.Select(events, -1)
+		if err != nil && err != unix.EINTR {
+			log.Println(err)
+			continue
+		}
+		for i := 0; i < n; i++ {
+			ev := events[i]
+			if err := f(&ev); err != nil {
+				return err
+			}
+		}
+		if n == len(events) {
+			events = MakeEvents(n << 1)
+		}
+	}
 }
 
 func interestsToEpoll(interests interest.Interest, opts pollopt.PollOpt) uint32 {

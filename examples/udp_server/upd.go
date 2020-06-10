@@ -37,25 +37,17 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	events := poller.MakeEvents(128)
-	for {
-		n, err := poll.Select(events, -1)
-		if err != nil {
-			if err == unix.EINTR {
-				continue
-			}
-			log.Fatal(err)
+
+	fn := func(ev *poller.Event) error {
+		switch ev.Token() {
+		case UDP_SOCKET:
+			loopReadUDP(fd)
+		default:
+			return errors.New("unreachable")
 		}
-		for i := 0; i < n; i++ {
-			ev := events[i]
-			switch ev.Token() {
-			case UDP_SOCKET:
-				loopReadUDP(fd)
-			default:
-				log.Fatal(errors.New("unreachable"))
-			}
-		}
+		return nil
 	}
+	poller.Polling(poll, fn)
 }
 
 func loopReadUDP(fd int) error {
