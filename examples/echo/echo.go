@@ -12,6 +12,7 @@ import (
 )
 
 const SERVER poller.Token = poller.Token(0)
+const CLIENT poller.Token = poller.Token(1)
 
 // run it
 // then nc localhost 9999
@@ -35,9 +36,6 @@ func main() {
 		log.Fatal(err)
 	}
 
-	uniqueToken := 1
-	connections := make(map[poller.Token]int)
-
 	fn := func(ev *poller.Event) error {
 		switch ev.Token() {
 		case SERVER:
@@ -54,21 +52,14 @@ func main() {
 				if err := poller.Nonblock(cfd); err != nil {
 					return err
 				}
-
-				uniqueToken++
-				err = poll.Register(cfd, poller.Token(uniqueToken), interest.READABLE.Add(interest.WRITABLE), pollopt.Edge)
+				err = poll.Register(cfd, poller.Token(CLIENT), interest.READABLE.Add(interest.WRITABLE), pollopt.Edge)
 				if err != nil {
 					log.Fatal(err)
 				}
-				connections[poller.Token(uniqueToken)] = cfd
 			}
-
-		default:
-			if fd, found := connections[ev.Token()]; found {
-				err := handle(poll, fd, ev)
-				if err != nil {
-					delete(connections, poller.Token(uniqueToken))
-				}
+		case CLIENT:
+			err := handle(poll, int(ev.Fd), ev)
+			if err != nil {
 			}
 		}
 		return nil
@@ -86,6 +77,7 @@ func handle(s *poller.Selector, fd int, event *poller.Event) error {
 			n, err := unix.Read(fd, buf)
 			if n == 0 {
 				connectionClosed = true
+				break
 			}
 			if err != nil {
 				//WouldBlock

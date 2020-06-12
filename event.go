@@ -11,7 +11,7 @@ func MakeEvents(length int) []Event {
 }
 
 func (e Event) Token() Token {
-	return Token(e.Fd)
+	return Token(e.Pad)
 }
 
 func (e Event) IsReadable() bool {

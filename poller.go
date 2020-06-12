@@ -13,6 +13,7 @@ import (
 
 const POLLET uint32 = 1 << 31
 const POLLONESHOT uint32 = 1 << 30
+const DefaultEventLen = 128
 
 type Token int32
 
@@ -49,14 +50,14 @@ func (s *Selector) Select(events []Event, timeout int) (int, error) {
 	return n, nil
 }
 
-func (s *Selector) Register(fd int, tonken Token, interests interest.Interest, opt pollopt.PollOpt) error {
+func (s *Selector) Register(fd int, token Token, interests interest.Interest, opt pollopt.PollOpt) error {
 	return unix.EpollCtl(s.fd, syscall.EPOLL_CTL_ADD, fd,
-		&unix.EpollEvent{Events: interestsToEpoll(interests, opt), Fd: int32(tonken)})
+		&unix.EpollEvent{Events: interestsToEpoll(interests, opt), Fd: int32(fd), Pad: int32(token)})
 }
 
-func (s *Selector) Reregister(fd int, tonken Token, interests interest.Interest, opt pollopt.PollOpt) error {
+func (s *Selector) Reregister(fd int, token Token, interests interest.Interest, opt pollopt.PollOpt) error {
 	return unix.EpollCtl(s.fd, syscall.EPOLL_CTL_MOD, fd,
-		&unix.EpollEvent{Events: interestsToEpoll(interests, opt), Fd: int32(tonken)})
+		&unix.EpollEvent{Events: interestsToEpoll(interests, opt), Fd: int32(fd), Pad: int32(token)})
 }
 
 func (s *Selector) Deregister(fd int) error {
@@ -64,7 +65,7 @@ func (s *Selector) Deregister(fd int) error {
 }
 
 func Polling(s *Selector, f func(*Event) error) error {
-	events := MakeEvents(128)
+	events := MakeEvents(DefaultEventLen)
 	for {
 		n, err := s.Select(events, -1)
 		if err != nil && err != unix.EINTR {
@@ -88,7 +89,6 @@ func interestsToEpoll(interests interest.Interest, opts pollopt.PollOpt) uint32 
 	if interests.IsReadable() {
 		kind = kind | unix.POLLIN | unix.POLLHUP
 	}
-
 	if interests.IsWritable() {
 		kind |= unix.POLLOUT
 	}
@@ -96,6 +96,7 @@ func interestsToEpoll(interests interest.Interest, opts pollopt.PollOpt) uint32 
 	if opts.IsEdge() {
 		kind |= POLLET
 	}
+
 	if opts.IsOneshot() {
 		kind |= POLLONESHOT
 	}
