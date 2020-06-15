@@ -88,7 +88,11 @@ func handle(s *poller.Selector, fd int, event *poller.Event) error {
 				if err == unix.EINTR {
 					continue
 				}
-				return err
+				//`connection reset by peer` n is not 0 ,err is not nil but we can't break the work,so can't use return
+				log.Printf("%s", err)
+				connectionClosed = true
+				break
+				//return err
 			}
 			receivedData = append(receivedData, buf[:n]...)
 		}
