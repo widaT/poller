@@ -12,12 +12,12 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const UDP_SOCKET poller.Token = poller.Token(0)
+var UDP_SOCKET = poller.NextToken()
 
 // run it
 // then nc  -u localhost 8888
 func main() {
-	poll, err := poller.New()
+	poll, err := poller.NewPoller()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func main() {
 		}
 		return nil
 	}
-	poller.Polling(poll, fn)
+	poll.Polling(fn)
 }
 
 func loopReadUDP(fd int) error {

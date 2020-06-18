@@ -11,13 +11,13 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const SERVER poller.Token = poller.Token(0)
-const CLIENT poller.Token = poller.Token(1)
+var SERVER = poller.NextToken()
+var CLIENT = poller.NextToken()
 
 // run it
 // then nc localhost 9999
 func main() {
-	poll, err := poller.New()
+	poll, err := poller.NewPoller()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -64,10 +64,10 @@ func main() {
 		}
 		return nil
 	}
-	poller.Polling(poll, fn)
+	poll.Polling(fn)
 }
 
-func handle(s *poller.Selector, fd int, event *poller.Event) error {
+func handle(s *poller.Poller, fd int, event *poller.Event) error {
 	switch {
 	case event.IsReadable():
 		connectionClosed := false

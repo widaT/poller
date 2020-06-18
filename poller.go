@@ -2,81 +2,63 @@ package poller
 
 import (
 	"log"
-	"sync/atomic"
-	"syscall"
-	"unsafe"
 
 	"github.com/widaT/poller/interest"
 	"github.com/widaT/poller/pollopt"
 	"golang.org/x/sys/unix"
 )
 
-const POLLET uint32 = 1 << 31
-const POLLONESHOT uint32 = 1 << 30
-const DefaultEventLen = 128
-
-type Token int32
-
-type Selector struct {
-	id uint32
-	fd int
+type Poller struct {
+	waker    *Waker
+	selector *Selector
+	tasks    []func()
+	lock     *Locker
 }
 
-var NextId uint32 = 1
-
-func New() (selector *Selector, err error) {
-	selector = new(Selector)
-	selector.fd, err = unix.EpollCreate1(unix.EPOLL_CLOEXEC)
+func NewPoller() (p *Poller, err error) {
+	p = new(Poller)
+	p.selector, err = NewSelector()
 	if err != nil {
-		return nil, err
+		return
 	}
-	selector.id = atomic.AddUint32(&NextId, 1)
+	p.lock = &Locker{}
+	p.waker, err = NewWaker(p.selector, WakerToken)
+	if err != nil {
+		return
+	}
 	return
 }
 
-func (s *Selector) Id() uint32 {
-	return s.id
+func (p *Poller) AddTask(fn func()) {
+	p.lock.Lock()
+	p.tasks = append(p.tasks, fn)
+	p.lock.Unlock()
 }
 
-func (s *Selector) Fd() int {
-	return s.fd
-}
-
-func (s *Selector) Select(events []Event, timeout int) (int, error) {
-	n, err := epollWait(s.fd, events, timeout)
-	if err != nil {
-		return 0, err
-	}
-	return n, nil
-}
-
-func (s *Selector) Register(fd int, token Token, interests interest.Interest, opt pollopt.PollOpt) error {
-	return unix.EpollCtl(s.fd, syscall.EPOLL_CTL_ADD, fd,
-		&unix.EpollEvent{Events: interestsToEpoll(interests, opt), Fd: int32(fd), Pad: int32(token)})
-}
-
-func (s *Selector) Reregister(fd int, token Token, interests interest.Interest, opt pollopt.PollOpt) error {
-	return unix.EpollCtl(s.fd, syscall.EPOLL_CTL_MOD, fd,
-		&unix.EpollEvent{Events: interestsToEpoll(interests, opt), Fd: int32(fd), Pad: int32(token)})
-}
-
-func (s *Selector) Deregister(fd int) error {
-	return unix.EpollCtl(s.fd, syscall.EPOLL_CTL_DEL, fd, nil)
-}
-
-func Polling(s *Selector, f func(*Event) error) error {
+func (p *Poller) Polling(f func(*Event) error) error {
 	events := MakeEvents(DefaultEventLen)
+	wake := false
 	for {
-		n, err := s.Select(events, -1)
+		n, err := p.selector.Select(events, -1)
 		if err != nil && err != unix.EINTR {
 			log.Println(err)
 			continue
 		}
 		for i := 0; i < n; i++ {
 			ev := events[i]
-			if err := f(&ev); err != nil {
-				return err
+			switch ev.Token() {
+			case WakerToken:
+				p.waker.Reset()
+				wake = true
+			default:
+				if err := f(&ev); err != nil {
+					return err
+				}
 			}
+		}
+		if wake {
+			wake = false
+			p.runTask()
 		}
 		if n == len(events) {
 			events = MakeEvents(n << 1)
@@ -84,56 +66,25 @@ func Polling(s *Selector, f func(*Event) error) error {
 	}
 }
 
-func interestsToEpoll(interests interest.Interest, opts pollopt.PollOpt) uint32 {
-	var kind uint32 = 0
-	if interests.IsReadable() {
-		kind = kind | unix.POLLIN | unix.POLLHUP
+func (p *Poller) runTask() {
+	p.lock.Lock()
+	tasks := p.tasks
+	p.tasks = nil
+	p.lock.Unlock()
+	length := len(tasks)
+	for i := 0; i < length; i++ {
+		tasks[i]()
 	}
-	if interests.IsWritable() {
-		kind |= unix.POLLOUT
-	}
-
-	if opts.IsEdge() {
-		kind |= POLLET
-	}
-
-	if opts.IsOneshot() {
-		kind |= POLLONESHOT
-	}
-
-	if opts.IsLevel() {
-		kind &= ^POLLET
-	}
-	return kind
 }
 
-var _zero uintptr
-
-func epollWait(epfd int, events []Event, msec int) (n int, err error) {
-	var _p0 unsafe.Pointer
-	if len(events) > 0 {
-		_p0 = unsafe.Pointer(&events[0])
-	} else {
-		_p0 = unsafe.Pointer(&_zero)
-	}
-	r0, _, e1 := unix.Syscall6(unix.SYS_EPOLL_WAIT, uintptr(epfd), uintptr(_p0), uintptr(len(events)), uintptr(msec), 0, 0)
-	n = int(r0)
-	if e1 != 0 {
-		err = errnoErr(e1)
-	}
-	return
+func (p *Poller) Register(fd int, token Token, interests interest.Interest, opt pollopt.PollOpt) error {
+	return p.selector.Register(fd, token, interests, opt)
 }
 
-func errnoErr(e syscall.Errno) error {
-	switch e {
-	case 0:
-		return nil
-	case unix.EAGAIN:
-		return syscall.EAGAIN
-	case unix.EINVAL:
-		return syscall.EINVAL
-	case unix.ENOENT:
-		return syscall.ENOENT
-	}
-	return e
+func (p *Poller) Reregister(fd int, token Token, interests interest.Interest, opt pollopt.PollOpt) error {
+	return p.selector.Register(fd, token, interests, opt)
+}
+
+func (p *Poller) Deregister(fd int) error {
+	return p.selector.Deregister(fd)
 }

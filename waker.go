@@ -1,7 +1,6 @@
-package waker
+package poller
 
 import (
-	"github.com/widaT/poller"
 	"github.com/widaT/poller/interest"
 	"github.com/widaT/poller/pollopt"
 	"golang.org/x/sys/unix"
@@ -14,7 +13,7 @@ type Waker struct {
 	fd int
 }
 
-func New(s *poller.Selector, token poller.Token) (waker *Waker, err error) {
+func NewWaker(s *Selector, token Token) (waker *Waker, err error) {
 	waker = new(Waker)
 	if waker.fd, err = unix.Eventfd(0, unix.EFD_NONBLOCK|unix.EFD_CLOEXEC); err != nil {
 		return
