@@ -35,6 +35,10 @@ func (p *Poller) AddTask(fn func()) {
 	p.lock.Unlock()
 }
 
+func (p *Poller) Wake() error {
+	return p.waker.Wake()
+}
+
 func (p *Poller) Polling(f func(*Event) error) error {
 	events := MakeEvents(DefaultEventLen)
 	wake := false
