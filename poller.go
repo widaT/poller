@@ -86,7 +86,7 @@ func (p *Poller) Register(fd int, token Token, interests interest.Interest, opt 
 }
 
 func (p *Poller) Reregister(fd int, token Token, interests interest.Interest, opt pollopt.PollOpt) error {
-	return p.selector.Register(fd, token, interests, opt)
+	return p.selector.Reregister(fd, token, interests, opt)
 }
 
 func (p *Poller) Deregister(fd int) error {
